@@ -38,6 +38,16 @@ void clearScreen(wchar_t *screen) {
 	}
 }
 
+wchar_t getTexture(float fPathDistance, float fViewingDistance) {
+	std::wstring shading;
+	shading += L"$#+=:-.";
+	if (fPathDistance >= fViewingDistance) {
+		return shading[shading.length() - 1];
+	}
+	int index = std::round(shading.length() * fPathDistance / fViewingDistance);
+	return shading[index];
+}
+
 
 //classes
 class Player {
@@ -45,13 +55,14 @@ private:
 	float fPlayerX;
 	float fPlayerY;
 	float fPlayerA;
+	void turnH(int dir);
+	void move(int dir);
 public:
 	float fGetPlayerX();
 	float fGetPlayerY();
 	float fGetPlayerA();
 	void addAngle(float angle);
-	void turnH(int dir);
-	void move(int dir);
+	void update();
 
 	Player(float posX, float posY, float initA);
 };
@@ -78,6 +89,22 @@ Player::Player(float posX, float posY, float initA) {
 	fPlayerX = posX;
 	fPlayerY = posY;
 	fPlayerA = initA;
+}
+
+void Player::update() {
+	wchar_t key = _getwch();
+	if (key == L'd') {
+		turnH(1);
+	}
+	else if (key == L'a') {
+		turnH(0);
+	}
+	else if (key == L'w') {
+		move(1);
+	}
+	else if (key == L's') {
+		move(0);
+	}
 }
 
 float Player::fGetPlayerX() {
@@ -107,12 +134,12 @@ void Player::turnH(int turn) {
 
 void Player::move(int dir) {
 	if (dir == 1) {
-		fPlayerX += 0.05*std::cosf(fPlayerA);
-		fPlayerY += 0.05*std::sinf(fPlayerA);
+		fPlayerX += 0.1*std::cosf(fPlayerA);
+		fPlayerY += 0.1*std::sinf(fPlayerA);
 	}
 	else {
-		fPlayerX += -0.05*std::cosf(fPlayerA);
-		fPlayerY += -0.05*std::sinf(fPlayerA);
+		fPlayerX += -0.1*std::cosf(fPlayerA);
+		fPlayerY += -0.1*std::sinf(fPlayerA);
 	}
 }
 
@@ -156,9 +183,10 @@ int main()
 	SetConsoleActiveScreenBuffer(hConsole);
 	DWORD dwBytesWritten = 0;
 	float fStepLenght = 0.01f;
-	float fVPOV = PI / 2.0f;
+	float fVPOV = PI / 2.0f; //2.0f * atanf(((float)nScreenWidth)  * tanf(PI / 4.0) / ((float)nScreenHeight));
 	float fHPOV = PI / 2.0f;
 	std::wstring gameMap; //currently 16x16, wchar_t at index i can be called by gameMap[p]
+	float fViewingDistance = 16.0f;
 
 	gameMap += L"################";
 	gameMap += L"#..............#";
@@ -180,6 +208,7 @@ int main()
 	Player player = Player(8.0f, 8.0f, 0.0f);
 	float playerHeight = 1.80f;
 	float wallHeight = 3.00f;
+	float stepA = fHPOV / nScreenWidth; //the dAngle for each raycast
 
 	//game loop
 	while (true)
@@ -187,25 +216,11 @@ int main()
 		
 		clearScreen(screen);
 		
-		if (_kbhit()) {
-			wchar_t key = _getwch();
-			if (key == L'd') {
-				player.turnH(1);
-			}
-			else if (key == L'a'){
-				player.turnH(0);
-			}
-			else if (key == L'w') {
-				player.move(1);
-			}
-			else if (key == L's') {
-				player.move(0);
-			}
-		}
-		//send rays and paint wall, angle in radian
+		if (_kbhit()) player.update(); //update turning or moving
 
 		float sendA = player.fGetPlayerA() - fHPOV / 2;
-		float stepA = fHPOV / nScreenWidth;
+		 //can be made a constant
+		
 		for (int i = 0; i < nScreenWidth; i++) {
 			
 			rayVector ray = rayVector(player, fStepLenght, sendA, &gameMap);
@@ -223,39 +238,34 @@ int main()
 			if (ray.hitWall()) {
 				//upper half 
 				
-				wchar_t texture;
-				float pathLength = ray.getPathLength() * std::cosf(sendA - player.fGetPlayerA()) + 0.5;
-				if (pathLength >= 0.0f && pathLength < 4.0f) texture = L'\25A0';
-				else if (pathLength >= 4.0f && pathLength < 8.0f) texture = L'=';
-				else if (pathLength >= 8.0f && pathLength < 12.0f) texture = L'-';
-				else if (pathLength >= 12.0f && pathLength <= 16.0f) texture = L'.';
+				//texture was fixed
+				wchar_t texture = getTexture(ray.getPathLength(), fViewingDistance);
 					
-				//int screenHeightWall
-
-				float fWallScreenHeight = nScreenHeight * (wallHeight - playerHeight) / (2 * pathLength * std::tanf(fVPOV / 2));
+				float pathLength = ray.getPathLength();
+				float fScreenScaling = nScreenHeight / (2 * pathLength * std::tanf(fVPOV / 2));
+				
+				float fWallScreenHeight = (wallHeight - playerHeight) * fScreenScaling;
 				int nWallScreenHeight = std::round(fWallScreenHeight);
 				if (nWallScreenHeight > nScreenHeight / 2) nWallScreenHeight = nScreenHeight / 2;
 				for (int j = 0; j < nWallScreenHeight; j++) {
 					screen[toScreenIndex(i, std::round(((float) nScreenHeight) / 2.0 - j))] = texture;
 				}
 
-				fWallScreenHeight = nScreenHeight * (playerHeight) / (2 * pathLength * std::tanf(fVPOV / 2));
+				//bottom half
+				fWallScreenHeight = playerHeight * fScreenScaling;
 				nWallScreenHeight = std::round(fWallScreenHeight);
 				if (nWallScreenHeight > nScreenHeight / 2) nWallScreenHeight = nScreenHeight / 2;
 				for (int j = 0; j < nWallScreenHeight; j++) {
 					screen[toScreenIndex(i, std::round(((float)nScreenHeight) / 2.0 + j))] = texture;
 				}
-				//second half
 			}
-			sendA = sendA + stepA;
+
+
+			sendA += stepA;
 		}
-		
 
 		screen[nScreenHeight*nScreenWidth - 1] = '\0';
 		WriteConsoleOutputCharacter(hConsole, screen, nScreenHeight*nScreenWidth, { 0,0 }, &dwBytesWritten);
-		//Sleep(nSPF);
-
-
 	}
 	
 }
